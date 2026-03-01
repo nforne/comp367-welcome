@@ -1,13 +1,26 @@
 pipeline {
   agent any
-  tools { maven 'Maven' } // ensure Jenkins global tools has a Maven named 'Maven'
   stages {
     stage('Checkout') {
       steps { checkout scm }
     }
     stage('Build') {
       steps {
-        sh 'mvn -B clean package'
+        script {
+          if (isUnix()) {
+            if (fileExists('mvnw')) {
+              sh './mvnw -B clean package'
+            } else {
+              sh 'mvn -B clean package'
+            }
+          } else {
+            if (fileExists('mvnw.cmd')) {
+              bat 'mvnw -B clean package'
+            } else {
+              bat 'mvn -B clean package'
+            }
+          }
+        }
       }
     }
     stage('Archive') {
@@ -27,4 +40,3 @@ pipeline {
     failure { echo 'Build failed' }
   }
 }
-
