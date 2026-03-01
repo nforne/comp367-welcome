@@ -8,17 +8,22 @@ pipeline {
       steps {
         script {
           if (isUnix()) {
-            if (fileExists('mvnw')) {
-              sh './mvnw -B clean package'
-            } else {
-              sh 'mvn -B clean package'
-            }
+            sh '''
+              if [ -f mvnw ]; then
+                chmod +x mvnw || true
+                ./mvnw -B clean package
+              else
+                mvn -B clean package
+              fi
+            '''
           } else {
-            if (fileExists('mvnw.cmd')) {
-              bat 'mvnw -B clean package'
-            } else {
-              bat 'mvn -B clean package'
-            }
+            bat '''
+              if exist mvnw.cmd (
+                mvnw.cmd -B clean package
+              ) else (
+                mvn -B clean package
+              )
+            '''
           }
         }
       }
