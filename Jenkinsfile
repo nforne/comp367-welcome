@@ -1,11 +1,17 @@
 pipeline {
-  agent any // run on any available agent
+  agent any
+
+  tools { maven 'Maven' } // set this name in Jenkins Global Tool Configuration
+
+  environment {
+    DOCKERHUB_CREDENTIALS = "${env.DOCKERHUB_CREDENTIALS}"   // Jenkins credentials ID (username/password)
+    DOCKER_IMAGE = "${env.DOCKER_IMAGE}" // REPLACE
+    IMAGE_TAG = "${env.BUILD_NUMBER}"
+  }
 
   stages {
     stage('Checkout') {
       steps {
-        // 'checkout scm' requires the job to be a Multibranch Pipeline or Pipeline from SCM.
-        // If this Jenkinsfile is pasted into a single-branch Pipeline job, replace this with an explicit git step.
         checkout scm
       }
     }
@@ -13,27 +19,21 @@ pipeline {
     stage('Build') {
       steps {
         script {
-          // Detect platform and run the appropriate commands.
-          // On Unix agents use sh; on Windows agents use bat.
           if (isUnix()) {
             sh '''
-              # If the Maven wrapper exists, ensure it's executable and use it for a reproducible build.
-              # The wrapper downloads the correct Maven version for the project.
               if [ -f mvnw ]; then
                 chmod +x mvnw || true
-                ./mvnw -B clean package
+                ./mvnw -B clean package -DskipTests
               else
-                # Fall back to system-installed mvn if wrapper is not present.
-                mvn -B clean package
+                mvn -B clean package -DskipTests
               fi
             '''
           } else {
             bat '''
-              REM On Windows, prefer mvnw.cmd if present; otherwise use system mvn.
               if exist mvnw.cmd (
-                mvnw.cmd -B clean package
+                mvnw.cmd -B clean package -DskipTests
               ) else (
-                mvn -B clean package
+                mvn -B clean package -DskipTests
               )
             '''
           }
@@ -43,23 +43,44 @@ pipeline {
 
     stage('Archive') {
       steps {
-        // Save build artifacts so they are available from the Jenkins build page.
         archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+      }
+    }
+
+    stage('Docker Login') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: env.DOCKERHUB_CREDENTIALS, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+        }
+      }
+    }
+
+    stage('Docker Build') {
+      steps {
+        sh "docker build -t ${DOCKER_IMAGE}:${IMAGE_TAG} ."
+        sh "docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${DOCKER_IMAGE}:latest"
+      }
+    }
+
+    stage('Docker Push') {
+      steps {
+        sh "docker push ${DOCKER_IMAGE}:${IMAGE_TAG}"
+        sh "docker push ${DOCKER_IMAGE}:latest"
       }
     }
 
     stage('Info') {
       steps {
-        // Print useful environment variables for debugging and traceability.
-        echo "JENKINS_URL = ${env.JENKINS_URL}"
-        echo "BUILD_ID = ${env.BUILD_ID}"
+        echo "Built image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
       }
     }
   }
 
   post {
-    // Post actions run after the pipeline completes; useful for notifications or cleanup.
-    success { echo 'Build succeeded' }
-    failure { echo 'Build failed' }
+    always {
+      sh 'docker logout || true'
+    }
+    success { echo 'Pipeline succeeded' }
+    failure { echo 'Pipeline failed' }
   }
 }
